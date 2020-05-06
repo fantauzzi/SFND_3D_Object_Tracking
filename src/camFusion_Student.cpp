@@ -138,7 +138,31 @@ void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPo
 
 void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
                      std::vector<LidarPoint> &lidarPointsCurr, double frameRate, double &TTC) {
-    // ...
+    {
+        // Fraction of points closest along the x direction to be discarded before finding the closest point
+        const double p = .01;
+        double laneWidth = 4.0; // assumed width of the ego lane, in meters
+        double dT = 1 / frameRate; // time between two measurements, in seconds
+
+        auto percentile = [](const vector<LidarPoint> &points, double p, double max_allowed) -> double {
+            vector<double> xs;
+            xs.reserve(points.size());
+            for (const auto &point: points)
+                if (std::abs(point.y) <= max_allowed)
+                    xs.push_back(point.x);
+
+            sort(xs.begin(), xs.end());
+            std::size_t pos = std::round(xs.size() * p);
+            double res = xs[pos];
+            return res;
+        };
+
+        // find closest distance to Lidar points within ego lane
+        // double minXPrev = 1e9, minXCurr = 1e9;
+        auto minXPrev = percentile(lidarPointsPrev, p, laneWidth / 2.);
+        auto minXCurr = percentile(lidarPointsCurr, p, laneWidth / 2.);
+        TTC = minXCurr * dT / (minXPrev - minXCurr);
+    }
 }
 
 
@@ -188,11 +212,11 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
             if (the_IOU >= iou_threshold)
                 iou.emplace_back(make_tuple(prev_bbox_i, curr_bbox_i, the_IOU));
         }
-
     }
 
     /* List the pairs of bboxes (one in the prev. frame and one in the current frame) in descending order of
-     * IOU, until you have paired all the bboxes in the prev. frame and/or all the bboxes in the curr. frame */
+     * IOU, until you have paired all the bboxes in the prev. frame and or all the bboxes in the curr. frame */
+
     sort(iou.begin(), iou.end(),
          [](const tuple<int, int, double> &a, const tuple<int, int, double> &b) -> bool {
              return get<2>(a) > get<2>(b);
@@ -200,7 +224,6 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
 
     vector<bool> used_bboxes_prev_frame(prevFrame.boundingBoxes.size(), false);
     vector<bool> used_bboxes_curr_frame(currFrame.boundingBoxes.size(), false);
-
     map<int, double> bbox_iou;
     for (const auto &item: iou) {
         auto prev_bb_i = get<0>(item);
@@ -209,12 +232,12 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
         if (!used_bboxes_prev_frame[prev_bb_i] && !used_bboxes_curr_frame[curr_bb_i]) {
             used_bboxes_prev_frame[prev_bb_i] = true;
             used_bboxes_curr_frame[curr_bb_i] = true;
-            bbBestMatches[prev_bb_i] = curr_bb_i;
-            bbox_iou[prev_bb_i] = the_IOU;
+            bbBestMatches[prevFrame.boundingBoxes[prev_bb_i].boxID] = currFrame.boundingBoxes[curr_bb_i].boxID;
+            bbox_iou[prevFrame.boundingBoxes[prev_bb_i].boxID] = the_IOU;
         }
     }
 
-    for (const auto& match: bbBestMatches)
+    for (const auto &match: bbBestMatches)
         cout << match.first << ", " << match.second << " " << bbox_iou[match.first] << endl;
     cout << endl;
 }
