@@ -140,7 +140,7 @@ int main(int argc, const char *argv[])
         
         
         // REMOVE THIS LINE BEFORE PROCEEDING WITH THE FINAL PROJECT
-        continue; // skips directly to the next image without processing what comes beneath
+        // continue; // skips directly to the next image without processing what comes beneath
 
         /* DETECT IMAGE KEYPOINTS */
 
@@ -152,26 +152,34 @@ int main(int argc, const char *argv[])
         vector<cv::KeyPoint> keypoints; // create empty feature list for current image
         string detectorType = "SHITOMASI";
 
-        if (detectorType.compare("SHITOMASI") == 0)
-        {
-            detKeypointsShiTomasi(keypoints, imgGray, false);
-        }
-        else
-        {
-            //...
+        if (detectorType == "SHITOMASI")
+            detGoodFeaturesToTrack(keypoints, imgGray, bVis);
+        else if (detectorType == "HARRIS")
+            detKeypointsHarris(keypoints, imgGray, bVis);
+        else if (detectorType == "FAST")
+            detKeypointsModern(keypoints, img, "FAST", bVis);
+        else if (detectorType == "BRISK")
+            detKeypointsModern(keypoints, img, "BRISK", bVis);
+        else if (detectorType == "ORB")
+            detKeypointsModern(keypoints, img, "ORB", bVis);
+        else if (detectorType == "AKAZE")
+            detKeypointsModern(keypoints, img, "AKAZE", bVis);
+        else if (detectorType == "SIFT")
+            detKeypointsModern(keypoints, img, "SIFT", bVis);
+        else {
+            cerr << "Unknown detector type: " << detectorType << endl;
+            exit(-1);
         }
 
         // optional : limit number of keypoints (helpful for debugging and learning)
-        bool bLimitKpts = false;
-        if (bLimitKpts)
-        {
+        bool bLimitKpts = false; // Remember to remove before collecting final output
+        if (bLimitKpts) {
             int maxKeypoints = 50;
-
-            if (detectorType.compare("SHITOMASI") == 0)
-            { // there is no response info, so keep the first 50 as they are sorted in descending quality order
+            // there is no response info, so keep the first 50 as they are sorted in descending quality order
+            if (detectorType == "SHITOMASI" || detectorType == "HARRIS")
                 keypoints.erase(keypoints.begin() + maxKeypoints, keypoints.end());
-            }
-            cv::KeyPointsFilter::retainBest(keypoints, maxKeypoints);
+            else
+                cv::KeyPointsFilter::retainBest(keypoints, maxKeypoints);
             cout << " NOTE: Keypoints have been limited!" << endl;
         }
 
