@@ -1,3 +1,5 @@
+#include "camFusion.hpp"
+#include "dataStructures.h"
 
 #include <iostream>
 #include <algorithm>
@@ -5,16 +7,16 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
-#include "camFusion.hpp"
-#include "dataStructures.h"
 
 using namespace std;
 
-
 // Create groups of Lidar points whose projection into the camera falls into the same bounding box
-void
-clusterLidarWithROI(std::vector<BoundingBox> &boundingBoxes, std::vector<LidarPoint> &lidarPoints, float shrinkFactor,
-                    cv::Mat &P_rect_xx, cv::Mat &R_rect_xx, cv::Mat &RT) {
+void clusterLidarWithROI(std::vector<BoundingBox> &boundingBoxes,
+                         std::vector<LidarPoint> &lidarPoints,
+                         float shrinkFactor,
+                         cv::Mat &P_rect_xx,
+                         cv::Mat &R_rect_xx,
+                         cv::Mat &RT) {
     // loop over all Lidar points and associate them to a 2D bounding box
     cv::Mat X(4, 1, cv::DataType<double>::type);
     cv::Mat Y(3, 1, cv::DataType<double>::type);
@@ -89,11 +91,11 @@ void show3DObjects(std::vector<BoundingBox> &boundingBoxes, cv::Size worldSize, 
             right = right > x ? right : x;
 
             // draw individual point
-            cv::circle(topviewImg, cv::Point(x, y), 4, currColor, -1);
+            cv::circle(topviewImg, cv::Point(x, y), 2, currColor, -1);
         }
 
         // draw enclosing rectangle
-        cv::rectangle(topviewImg, cv::Point(left, top), cv::Point(right, bottom), cv::Scalar(0, 0, 0), 2);
+        cv::rectangle(topviewImg, cv::Point(left, top), cv::Point(right, bottom), cv::Scalar(0, 0, 0), 1);
 
         // augment object with some key data
         char str1[200], str2[200];
@@ -123,46 +125,99 @@ void show3DObjects(std::vector<BoundingBox> &boundingBoxes, cv::Size worldSize, 
 
 
 // associate a given bounding box with the keypoints it contains
-void clusterKptMatchesWithROI(BoundingBox &boundingBox, std::vector<cv::KeyPoint> &kptsPrev,
+void clusterKptMatchesWithROI(BoundingBox &currBoundingBox, std::vector<cv::KeyPoint> &kptsPrev,
                               std::vector<cv::KeyPoint> &kptsCurr, std::vector<cv::DMatch> &kptMatches) {
-    // ...
+
+    for (const auto &match: kptMatches) {
+        auto kp = kptsCurr[match.trainIdx].pt;
+        auto roi = currBoundingBox.roi;
+        if (kp.x >= roi.x && kp.x < roi.x + roi.width && kp.y >= roi.y && kp.y < kp.y + roi.height)
+            currBoundingBox.kptMatches.emplace_back(match);
+    }
 }
 
 
 // Compute time-to-collision (TTC) based on keypoint correspondences in successive images
 void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPoint> &kptsCurr,
                       std::vector<cv::DMatch> kptMatches, double frameRate, double &TTC, cv::Mat *visImg) {
-    // ...
+
+    auto dT = 1 / frameRate;
+
+    // compute distance ratios between all matched keypoints
+    vector<double> distRatios; // stores the distance ratios for all keypoints between curr. and prev. frame
+    for (auto it1 = kptMatches.begin(); it1 != kptMatches.end() - 1; ++it1) {
+
+        // get current keypoint and its matched partner in the prev. frame
+        cv::KeyPoint kpOuterCurr = kptsCurr.at(it1->trainIdx);
+        cv::KeyPoint kpOuterPrev = kptsPrev.at(it1->queryIdx);
+
+        for (auto it2 = kptMatches.begin() + 1; it2 != kptMatches.end(); ++it2) {
+
+            const double minDist = 100.0; // min. required distance
+
+            // get next keypoint and its matched partner in the prev. frame
+            cv::KeyPoint kpInnerCurr = kptsCurr.at(it2->trainIdx);
+            cv::KeyPoint kpInnerPrev = kptsPrev.at(it2->queryIdx);
+
+            // compute distances and distance ratios
+            double distCurr = cv::norm(kpOuterCurr.pt - kpInnerCurr.pt);
+            double distPrev = cv::norm(kpOuterPrev.pt - kpInnerPrev.pt);
+
+            if (distPrev > std::numeric_limits<double>::epsilon() && distCurr >= minDist) { // avoid division by zero
+
+                double distRatio = distCurr / distPrev;
+                distRatios.push_back(distRatio);
+            }
+        } // inner loop
+    } // outer loop
+
+    // only continue if list of distance ratios is not empty
+    if (distRatios.size() == 0) {
+        TTC = NAN;
+        return;
+    }
+
+    // compute median dist. ratio to remove outlier influence
+    std::sort(distRatios.begin(), distRatios.end());
+    long medIndex = floor(distRatios.size() / 2.0);
+    double medDistRatio = distRatios.size() % 2 == 0 ? (distRatios[medIndex - 1] + distRatios[medIndex]) / 2.0
+                                                     : distRatios[medIndex];
+
+    dT = 1 / frameRate;
+    TTC = -dT / (1 - medDistRatio);
 }
 
 
 void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
                      std::vector<LidarPoint> &lidarPointsCurr, double frameRate, double &TTC) {
-    {
-        // Fraction of points closest along the x direction to be discarded before finding the closest point
-        const double p = .01;
-        double laneWidth = 4.0; // assumed width of the ego lane, in meters
-        double dT = 1 / frameRate; // time between two measurements, in seconds
+    // Fraction of points, closest along the x direction, to be discarded before finding the closest point
+    const double p = .02;
+    double laneWidth = 4.0; // assumed width of the ego lane, in meters
+    double dT = 1. / frameRate; // time between two measurements, in seconds
 
-        auto percentile = [](const vector<LidarPoint> &points, double p, double max_allowed) -> double {
-            vector<double> xs;
-            xs.reserve(points.size());
-            for (const auto &point: points)
-                if (std::abs(point.y) <= max_allowed)
-                    xs.push_back(point.x);
+    /* Returns the p-percentale of the lidar points distance along x, after ignoring those points
+     * with a y component grater in absolute value than `max_allowed` (which is meant to be half the lane width).
+     */
+    auto percentile = [](const vector<LidarPoint> &points, double p, const double max_allowed) -> double {
+        vector<double> xs;
+        xs.reserve(points.size());
+        for (const auto &point: points)
+            if (std::abs(point.y) <= max_allowed)
+                xs.push_back(point.x);
 
-            sort(xs.begin(), xs.end());
-            std::size_t pos = std::round(xs.size() * p);
-            double res = xs[pos];
-            return res;
-        };
+        sort(xs.begin(), xs.end());
+        std::size_t pos = std::round(xs.size() * p);
+        double res = xs[pos];
+        return res;
+    };
 
-        // find closest distance to Lidar points within ego lane
-        // double minXPrev = 1e9, minXCurr = 1e9;
-        auto minXPrev = percentile(lidarPointsPrev, p, laneWidth / 2.);
-        auto minXCurr = percentile(lidarPointsCurr, p, laneWidth / 2.);
-        TTC = minXCurr * dT / (minXPrev - minXCurr);
-    }
+    /* Find closest distances to Lidar points within ego lane in current and previous frame, trying to filter out
+     * outliers */
+    auto minXPrev = percentile(lidarPointsPrev, p, laneWidth / 2.);
+    auto minXCurr = percentile(lidarPointsCurr, p, laneWidth / 2.);
+
+    // Finally compute the the TTC
+    TTC = minXCurr * dT / (minXPrev - minXCurr);
 }
 
 
@@ -236,8 +291,4 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
             bbox_iou[prevFrame.boundingBoxes[prev_bb_i].boxID] = the_IOU;
         }
     }
-
-    for (const auto &match: bbBestMatches)
-        cout << match.first << ", " << match.second << " " << bbox_iou[match.first] << endl;
-    cout << endl;
 }
