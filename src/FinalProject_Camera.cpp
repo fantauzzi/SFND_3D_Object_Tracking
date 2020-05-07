@@ -419,9 +419,10 @@ int main(int argc, const char *argv[]) {
     cout << endl;
 
     // Saves stats in a file
-    ofstream stats_file(dataPath + stats_file_base_name + "_" + detectorType + "_" + descriptorType + ".txt");
+    string complete_file_name = dataPath + stats_file_base_name + "_" + detectorType + "_" + descriptorType + ".txt";
+    ofstream stats_file(complete_file_name);
     if (!stats_file.is_open()) {
-        cerr << "Unable to open file " << stats_file_base_name << " for writing" << endl;
+        cerr << "Unable to open file " << complete_file_name << " for writing" << endl;
         exit(-1);
     }
 
