@@ -60,6 +60,10 @@ After that, to **display charts** of the TTC from data saved by the application 
 python charts.py
 ```
 
+## Credits
+
+Portions of starter code provided by Udacity as part of the Sensor Fusion Nanodegree program. 
+
 ## Project Rubric
 
 Traceability of requirements for Udacity's Nanodegree project.
