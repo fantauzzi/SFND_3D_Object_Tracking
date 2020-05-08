@@ -48,7 +48,7 @@ void clusterLidarWithROI(std::vector<BoundingBox> &boundingBoxes,
                 enclosingBoxes.push_back(it2);
             }
 
-        } // eof loop over all bounding boxes
+        } // loop over all bounding boxes
 
         // check wether point has been enclosed by one or by multiple boxes
         if (enclosingBoxes.size() == 1) {
@@ -56,7 +56,7 @@ void clusterLidarWithROI(std::vector<BoundingBox> &boundingBoxes,
             enclosingBoxes[0]->lidarPoints.push_back(*it1);
         }
 
-    } // eof loop over all Lidar points
+    } // loop over all Lidar points
 }
 
 
@@ -190,6 +190,7 @@ void computeTTCCamera(std::vector<cv::KeyPoint> &kptsPrev, std::vector<cv::KeyPo
 
 void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
                      std::vector<LidarPoint> &lidarPointsCurr, double frameRate, double &TTC) {
+
     // Fraction of points, closest along the x direction, to be discarded before finding the closest point
     const double p = .02;
     double laneWidth = 4.0; // assumed width of the ego lane, in meters
@@ -211,8 +212,8 @@ void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
         return res;
     };
 
-    /* Find closest distances to Lidar points within ego lane in current and previous frame, trying to filter out
-     * outliers */
+    /* Find closest distances to Lidar points within ego lane in current and previous frame, trying to discard
+     * enough points to filter out outliers */
     auto minXPrev = percentile(lidarPointsPrev, p, laneWidth / 2.);
     auto minXCurr = percentile(lidarPointsCurr, p, laneWidth / 2.);
 
@@ -224,21 +225,24 @@ void computeTTCLidar(std::vector<LidarPoint> &lidarPointsPrev,
 void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bbBestMatches, DataFrame &prevFrame,
                         DataFrame &currFrame) {
 
-    auto find_bboxes_with_keypoint = [](const DataFrame &frame, const cv::KeyPoint &keypoint) {
-        vector<int> prev_bbox_indices;
+    // Return a vector of bounding box indices (in `frame.boundingBoxes`) that contain the given keypoints
+    auto find_bboxes_with_keypoint = [](const DataFrame &frame, const cv::KeyPoint &keypoint) -> vector<int> {
+        vector<int> bbox_indices;
         for (int i = 0; i < frame.boundingBoxes.size(); ++i) {
             const auto roi = frame.boundingBoxes[i].roi;
             const auto point = keypoint.pt;
             if (point.x >= roi.x && point.x < roi.x + roi.width &&
                 point.y >= roi.y && point.y < roi.y + roi.height)
-                prev_bbox_indices.push_back(i);
+                bbox_indices.push_back(i);
         }
-        return prev_bbox_indices;
+        return bbox_indices;
     };
 
-    // association of bounding boxes with an IOU below this thresholds will be discarded and not returned
-    double iou_threshold = .0002;
+    // matches of bounding boxes with an IOU below this thresholds will be discarded and not returned
+    double iou_threshold = .2;
 
+    /* Compute and store the the number of matches between every pair of matched bounding boxes and the number
+     * of matched keypoints every bounding box contains; it will be used to compute the IOU */
     map<pair<int, int>, int> intersection;
     map<int, int> union_prev;
     map<int, int> union_curr;
@@ -258,7 +262,8 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
             }
     }
 
-    // Calculate and store the IOU of every pair of bboxes, one in the prev. frame and one in the curr. frame
+    // Calculate and store the IOU of every pair of bboxes, where the first bbox in the pair is in the prev. frame
+    // and the second bbox is in the curr. frame
     vector<tuple<int, int, double>> iou;
     for (int prev_bbox_i = 0; prev_bbox_i < prevFrame.boundingBoxes.size(); ++prev_bbox_i) {
         for (int curr_bbox_i = 0; curr_bbox_i < currFrame.boundingBoxes.size(); ++curr_bbox_i) {
@@ -270,13 +275,14 @@ void matchBoundingBoxes(std::vector<cv::DMatch> &matches, std::map<int, int> &bb
     }
 
     /* List the pairs of bboxes (one in the prev. frame and one in the current frame) in descending order of
-     * IOU, until you have paired all the bboxes in the prev. frame and or all the bboxes in the curr. frame */
+     * IOU, until you have paired all the bboxes in the prev. frame or all the bboxes in the curr. frame */
 
     sort(iou.begin(), iou.end(),
          [](const tuple<int, int, double> &a, const tuple<int, int, double> &b) -> bool {
              return get<2>(a) > get<2>(b);
          });
 
+    // Compile the best matches into `bbBestMatches` (each bounding box has at most one match)
     vector<bool> used_bboxes_prev_frame(prevFrame.boundingBoxes.size(), false);
     vector<bool> used_bboxes_curr_frame(currFrame.boundingBoxes.size(), false);
     map<int, double> bbox_iou;
