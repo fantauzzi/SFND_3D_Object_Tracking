@@ -33,14 +33,14 @@ int main(int argc, const char *argv[]) {
         };
 
         cerr << "USAGE:" << endl;
-        cerr << "3D_object_tracking <detector> <descriptor> [on]" << endl;
-        cerr << "<detector> -one of ";
+        cerr << "       3D_object_tracking <detector> <descriptor> [on]" << endl;
+        cerr << "              <detector> -one of ";
         print_vector(detectorTypes);
-        cerr << endl;
-        cerr << "<descriptors> -one of ";
+        cerr << ";" << endl;
+        cerr << "              <descriptors> -one of ";
         print_vector(descriptorTypes);
-        cerr << endl;
-        cerr << "on -optional, it turns on graphic visualization" << endl;
+        cerr << ";" << endl;
+        cerr << "              on -optional, it turns on graphic visualization." << endl;
         exit(-1);
     };
 
@@ -316,6 +316,23 @@ int main(int argc, const char *argv[]) {
 
             // store matches in current data frame
             (dataBuffer.end() - 1)->kptMatches = matches;
+
+            if (bVis) {
+                cv::Mat matchImg = ((dataBuffer.end() - 1)->cameraImg).clone();
+                cv::drawMatches((dataBuffer.end() - 2)->cameraImg,
+                                (dataBuffer.end() - 2)->keypoints,
+                                (dataBuffer.end() - 1)->cameraImg, (dataBuffer.end() - 1)->keypoints,
+                                matches, matchImg,
+                                cv::Scalar::all(-1), cv::Scalar::all(-1),
+                                vector<char>(), cv::DrawMatchesFlags::DRAW_RICH_KEYPOINTS);
+
+                string windowName =
+                        "Matching keypoints with " + detectorType + " " + descriptorType + " " + matcherType;
+                cv::namedWindow(windowName, 7);
+                cv::imshow(windowName, matchImg);
+                cout << "Press key to continue to next image" << endl;
+                cv::waitKey(0); // wait for key to be pressed
+            }
 
             // cout << "#7 : MATCH KEYPOINT DESCRIPTORS done" << endl;
 

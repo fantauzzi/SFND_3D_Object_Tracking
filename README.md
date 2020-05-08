@@ -64,11 +64,80 @@ python charts.py
 
 Traceability of requirements for Udacity's Nanodegree project.
 
- * **FP.0 Final Report** -This README.
- * **FP.1 Match 3D Objects** 
+ ### FP.0 Final Report
+ 
+ This README.
+ 
+ ### FP.1 Match 3D Objects
+ 
+ Function `matchBoundingBoxes()` matches each bounding box with at most one bounding box in the other frame. The same bounding box cannot be matched to more than one other bounding box; because the two frames may have a different number of bounding boxes, not every frame is necessarily matched. Moreover, matches that have low reliability are discarded. 
+ 
+ To match bounding boxes, and choose the best matches, the implementation computes a statistic that I will refer to as *IOU*, as it is not very different from [Intersection over Union](https://www.coursera.org/lecture/convolutional-neural-networks/intersection-over-union-p9gxz).
+ 
+ The statistic is computed for every pair of bounding boxes as 
+ ```
+       2 * Intersection
+ IOU= -------------------
+        Count1 + Count2
+```
+where `Intersection` is the total number of matches between keypoints in one bounding box and keypoints in the other bounding box; `Count1` is the number of keypoints in one bounding box that have been matched (to any other bounding box); `Count2` is the number of matched keypoints in the other bounding box.
+
+All pairs of bounding boxes, one bounding box per frame, are ranked based on the calculated IOU, and matches are established starting from the pair with the highest IOU. When a bounding box is matched, it is removed for the ranking, such that each bounding box can be matched at most once. Also, pairs of bounding boxes with an IOU under a set threshold are not matched, because unreliable. 
+        
  * **FP.2 Compute Lidar-based TTC**
+ 
+ The implementation is in function `computeTTCLidar()`. To make the calculation of TTC robust toward outliers in the lidar points cloud, a set percentage of the points closest along the ego car `x` direction is ignored.   
+ 
  * **FP.3 Associate Keypoint Correspondences with Bounding Boxes**
+ 
+ Function `clusterKptMatchesWithROI()` contains the implementation. Removal of outliers is operated subsequently in `computeTTCCamera()`, before proceeding with computation of the time-to-collision. 
+ 
  * **FP.4 Compute Camera-based TTC**
+ 
+ Function `computeTTCCamera()` provides the  implementation. In estimating the time-to-collision, it uses the median among keypoints distance rations to mitigate the impact of outliers.
+ 
+ ![Screenshot](images/figure1.png "Table")
+ 
  * **FP.5 Performance Evaluation 1**
+ 
+ Three frames with implausible lidar TTC estimate are frames no. 5, 6 and 7 (numbering the first frame where TTC is computed as 0), in any of the tested combinations of detector and descriptor. See pictures here below.
+ 
+ ![Screenshot](images/figure7.png "Table")
+ 
+ ![Screenshot](images/figure2.png "Table")
+ 
+ ![Screenshot](images/figure3.png "Table")
+ 
+ A chart of the TTC over time (over frames) shows that the calculated TTC for lidar in frames 5, 6 and 7 is inconsistent with the same calculated in previous and subsequent frames, also with the camera calculated TTC.
+ 
+ ![Screenshot](images/figure4.png "Table")
+ 
+ The picture below highlights the lidar points used for calculation of the TTC from the car in front, from frame no. 4 to frame no. 9. One can see as the points cover the rear of the car at different heights in different frames, covering the bumber, the hatch and the plate to a varying degree.  
+ 
+ ![Screenshot](images/figure5.png "Table")
+ 
+ Below a top view of the same lidar points, again frames from 4 to 9, with the ego camera at the bottom and traveling upward. The blue line corresponds to a distance of 8 meters from the ego car along its traveling direction. 
+ 
+ Outliers don't seem to be a problem; however, removal of the bottom percentile of the lidar points, in addition to removing outliers, seem to be too aggressive in frame no. 5, and may be partly responsible for the inconsistent estimates of lidar TTC at frames 5 and 6. 
+ 
+ Overall, the lidar is accurate enough to pick differences in distance on the rear of the car, between hatch, bumper, plate, etc, which has thrown off the TTC estimates in some of the frames. Also, TTC accuracy may benefit by a less aggressive filtering of the outliers.
+ 
+ ![Screenshot](images/figure6.png "Table")
+ 
  * **FP.6 Performance Evaluation 2**
  
+ A combined chart of the TTC over time (frames) for lidar and camera for all tested combinations of detectors and descriptors can be produced with the provided scripts. Also here below.
+ 
+ ![Screenshot](images/figure9.png "Picture")
+ 
+ Based on this, the combination of FAST detector with BRIEF, ORB or SIFT descriptor, that I assessed in a previous prjoect to be the fastest, is also among the most stable performers to estimate TTC with camera.
+ 
+ Contrariwise, usage of the ORB detector has provided the most inconsistent TTC camera estimates, whatever the detector. I observed that it recurrently finds keypoints that are clustered together in the region of interest, with comparatively small distances from each other; the filter on minimum reciprocal distance applied before TTC calculation therefore removes the contribution of those keypoints, to the point that in some frames no keypoints remain available at all for the calculation.
+ 
+ For instance, the chart below plots TTC estimates for camera (in orange) at every frame; we can see no TTC estimate for frames no. 6 and 11. Keypoints were detected, but got all discarded by the filter on minimum reciprocal distance.
+ 
+ ![Screenshot](images/figure8.png "Picture")
+ 
+ Even when keypoints pass the filter, if they are clustered together with small reciprocal distances, they produce distance ratios with too high variance, and therefore unstable TTC estimate -see frames no. 3, 4, 8 and 14 in the chart above.   
+ 
+ Lowering the filter threshold allows to include more keypoints in the camera TTC estimate, at the expense of even greater instability.
